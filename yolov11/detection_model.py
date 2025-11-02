@@ -38,7 +38,7 @@ class ObjectDetector:
         
         print(f"Using device: {self.device} for object detection")
      
-        model_path = "./weights/best.pt"
+        model_path = "./train/weights/best.pt"
         # 2. 模型加载：优先使用自定义模型路径，否则加载默认官方模型
         if model_path is not None and os.path.exists(model_path):
             # 加载自定义训练的YOLO模型（best.pt）
