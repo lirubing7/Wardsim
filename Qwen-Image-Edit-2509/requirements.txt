@@ -1,0 +1,9 @@
+
+git+https://github.com/huggingface/diffusers.git
+pillow<12.0
+transformers
+accelerate
+safetensors
+sentencepiece
+dashscope
+torchvision
