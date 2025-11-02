@@ -1,7 +1,7 @@
 
 Download Qwen-Image-Edit-2509 to local path
   
-  mkdir model-path
+  mkdir model_path
 
   
   
