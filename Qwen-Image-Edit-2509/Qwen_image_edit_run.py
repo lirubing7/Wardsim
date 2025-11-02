@@ -6,8 +6,8 @@ from diffusers import QwenImageEditPlusPipeline
 # 引入黑图诊断工具（假设已保存为fix_black_image_issue.py）
 #from fix_black_image_issue import BlackImageFixer
 
-input_image_path = "./test/test.jpg"
-output_image_path = "./test/output_qwen_image_test.jpg"
+input_image_path = "../test/test.jpg"
+output_image_path = "../test/output_qwen_image_test.jpg"
 local_model_path="./Qwen-Image/Qwen-Image/model_path/Qwen-Image-Edit-2509"
 
 
