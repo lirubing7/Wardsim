@@ -1,0 +1,272 @@
+import os
+import torch
+import numpy as np
+import cv2
+from ultralytics import YOLO
+from collections import deque
+
+class ObjectDetector:
+    """
+    Object detection using YOLOv11 from Ultralytics
+    """
+    def __init__(self, model_size='small', conf_thres=0.3, iou_thres=0.8, classes=None, device=None):
+        """
+        Initialize the object detector
+        
+        Args:
+            model_size (str): Model size ('nano', 'small', 'medium', 'large', 'extra')
+            conf_thres (float): Confidence threshold for detections
+            iou_thres (float): IoU threshold for NMS
+            classes (list): List of classes to detect (None for all classes)
+            device (str): Device to run inference on ('cuda', 'cpu', 'mps')
+        """
+        # Determine device
+        if device is None:
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif hasattr(torch, 'backends') and hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+        
+        self.device = device
+        
+        # Set MPS fallback for operations not supported on Apple Silicon
+        if self.device == 'mps':
+            print("Using MPS device with CPU fallback for unsupported operations")
+            os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+        
+        print(f"Using device: {self.device} for object detection")
+     
+        model_path = "./weights/best.pt"
+        # 2. 模型加载：优先使用自定义模型路径，否则加载默认官方模型
+        if model_path is not None and os.path.exists(model_path):
+            # 加载自定义训练的YOLO模型（best.pt）
+            try:
+                self.model = YOLO(model_path)
+                print(f"Loaded custom YOLO model from: {model_path}")
+            except Exception as e:
+                print(f"Error loading custom model: {e}")
+                raise  # 自定义模型加载失败时终止，避免使用错误模型
+        else:
+            # 原逻辑：加载官方预训练模型（备用）
+            model_map = {'nano':'yolo11n', 'small':'yolo11s', 'medium':'yolo11m', 'large':'yolo11l', 'extra':'yolo11x'}
+            model_name = model_map.get(model_size.lower(), model_map['small'])  # 若保留model_size参数需调整
+            self.model = YOLO(model_name)
+            print(f"Loaded official YOLOv11 {model_name} model (no custom path provided)")
+
+
+        # Set model parameters
+        self.model.overrides['conf'] = conf_thres
+        self.model.overrides['iou'] = iou_thres
+        self.model.overrides['agnostic_nms'] = False
+        self.model.overrides['max_det'] = 1000
+        
+        if classes is not None:
+            self.model.overrides['classes'] = classes
+        
+        # Initialize tracking trajectories
+        self.tracking_trajectories = {}
+    
+    def detect(self, image, track=False):
+        """
+        Detect objects in an image
+        
+        Args:
+            image (numpy.ndarray): Input image (BGR format)
+            track (bool): Whether to track objects across frames
+            
+        Returns:
+            tuple: (annotated_image, detections)
+                - annotated_image (numpy.ndarray): Image with detections drawn
+                - detections (list): List of detections [bbox, score, class_id, object_id]
+        """
+        detections = []
+        
+        # Make a copy of the image for annotation
+        annotated_image = image.copy()
+        
+        try:
+            if track:
+                # Run inference with tracking
+                results = self.model.track(image, verbose=False, device=self.device, persist=True)
+            else:
+                # Run inference without tracking
+                results = self.model.predict(image, verbose=False, device=self.device)
+        except RuntimeError as e:
+            # Handle potential MPS errors
+            if self.device == 'mps' and "not currently implemented for the MPS device" in str(e):
+                print(f"MPS error during detection: {e}")
+                print("Falling back to CPU for this frame")
+                if track:
+                    results = self.model.track(image, verbose=False, device='cpu', persist=True)
+                else:
+                    results = self.model.predict(image, verbose=False, device='cpu')
+            else:
+                # Re-raise the error if not MPS or not an implementation error
+                raise
+        
+        if track:
+            # Clean up trajectories for objects that are no longer tracked
+            for id_ in list(self.tracking_trajectories.keys()):
+                if id_ not in [int(bbox.id) for predictions in results if predictions is not None 
+                              for bbox in predictions.boxes if bbox.id is not None]:
+                    del self.tracking_trajectories[id_]
+            
+            # Process results
+            for predictions in results:
+                if predictions is None:
+                    continue
+                
+                if predictions.boxes is None:
+                    continue
+                
+                # 获取图像尺寸（用于边界判断）
+                img_h, img_w = annotated_image.shape[:2]  # 图像高度、宽度
+
+                # Process boxes
+                for bbox in predictions.boxes:
+                    # Extract information
+                    scores = bbox.conf
+                    classes = bbox.cls
+                    bbox_coords = bbox.xyxy
+                    
+                    # Check if tracking IDs are available
+                    if hasattr(bbox, 'id') and bbox.id is not None:
+                        ids = bbox.id
+                    else:
+                        ids = [None] * len(scores)
+                    
+
+                    # Process each detection
+                    for score, class_id, bbox_coord, id_ in zip(scores, classes, bbox_coords, ids):
+                        
+                        # 优化4：过滤低置信度目标（仅绘制score≥0.3的框）
+                        if float(score) < 0.333 :
+                            continue
+
+                        xmin, ymin, xmax, ymax = bbox_coord.cpu().numpy()
+                        class_name = predictions.names[int(class_id)]
+
+                        # -------------------------- 新增：monitor顶点出界判断 --------------------------
+                        # 仅对monitor执行判断
+                        if class_name.lower() == "monitor":
+                            # 定义2D框的4个顶点（浮点坐标，未转int避免精度损失）
+                            vertices = [
+                                (xmin, ymin),  # 左上
+                                (xmax, ymin),  # 右上
+                                (xmin, ymax),  # 左下
+                                (xmax, ymax)   # 右下
+                            ]   
+                            # 判断是否有顶点超出屏幕（x<0或x>img_w-1；y<0或y>img_h-1）
+                            is_out_of_bounds = any(
+                                (x < 0 or x > (img_w - 1)) or (y < 0 or y > (img_h - 1))
+                                for x, y in vertices
+                            )   
+                            # 若出界：跳过绘制、不添加到detections、不跟踪
+                            if is_out_of_bounds:
+                                #print(f"[跳过] monitor (ID:{int(id_) if id_ is not None else '?'}) 顶点出界，不绘制不跟踪")
+                                continue  # 直接进入下一个检测框处理
+                        # -------------------------- 出界判断结束 --------------------------
+
+                        # Add to detections list
+                        detections.append([
+                            [xmin, ymin, xmax, ymax],  # bbox
+                            float(score),              # confidence score
+                            int(class_id),             # class id
+                            int(id_) if id_ is not None else None  # object id
+                        ])
+                        
+                        # Draw bounding box
+                        #cv2.rectangle(annotated_image, 
+                        #             (int(xmin), int(ymin)), 
+                        #             (int(xmax), int(ymax)), 
+                        #             (0, 0, 225), 2)
+                        
+                        # Add label
+                        #label = f"{predictions.names[int(class_id)]} {float(score):.2f}"
+                        #text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        #dim, baseline = text_size[0], text_size[1]
+                        #cv2.rectangle(annotated_image, 
+                        #             (int(xmin), int(ymin)), 
+                        #             (int(xmin) + dim[0], int(ymin) - dim[1] - baseline), 
+                        #             (30, 30, 30), cv2.FILLED)
+                        #cv2.putText(annotated_image, label, 
+                        #           (int(xmin), int(ymin) - 7), 
+                        #           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        
+                        # Update tracking trajectories
+                        if id_ is not None:
+                            centroid_x = (xmin + xmax) / 2
+                            centroid_y = (ymin + ymax) / 2
+                            
+                            if int(id_) not in self.tracking_trajectories:
+                                self.tracking_trajectories[int(id_)] = deque(maxlen=10)
+                            
+                            self.tracking_trajectories[int(id_)].append((centroid_x, centroid_y))
+            
+            # Draw trajectories
+            for id_, trajectory in self.tracking_trajectories.items():
+                for i in range(1, len(trajectory)):
+                    thickness = int(2 * (i / len(trajectory)) + 1)
+                    cv2.line(annotated_image, 
+                            (int(trajectory[i-1][0]), int(trajectory[i-1][1])), 
+                            (int(trajectory[i][0]), int(trajectory[i][1])), 
+                            (255, 255, 255), thickness)
+        
+        else:
+            # Process results for non-tracking mode
+            for predictions in results:
+                if predictions is None:
+                    continue
+                
+                if predictions.boxes is None:
+                    continue
+                
+                # Process boxes
+                for bbox in predictions.boxes:
+                    # Extract information
+                    scores = bbox.conf
+                    classes = bbox.cls
+                    bbox_coords = bbox.xyxy
+                    
+                    # Process each detection
+                    for score, class_id, bbox_coord in zip(scores, classes, bbox_coords):
+                        xmin, ymin, xmax, ymax = bbox_coord.cpu().numpy()
+                        
+                        # Add to detections list
+                        detections.append([
+                            [xmin, ymin, xmax, ymax],  # bbox
+                            float(score),              # confidence score
+                            int(class_id),             # class id
+                            None                       # object id (None for no tracking)
+                        ])
+                        
+                        # Draw bounding box
+                        #cv2.rectangle(annotated_image, 
+                        #             (int(xmin), int(ymin)), 
+                        #             (int(xmax), int(ymax)), 
+                        #             (0, 0, 225), 2)
+                        
+                        # Add label
+                        #label = f"{predictions.names[int(class_id)]} {float(score):.2f}"
+                        #text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        #dim, baseline = text_size[0], text_size[1]
+                        #cv2.rectangle(annotated_image, 
+                        #             (int(xmin), int(ymin)), 
+                        #             (int(xmin) + dim[0], int(ymin) - dim[1] - baseline), 
+                        #             (30, 30, 30), cv2.FILLED)
+                        #cv2.putText(annotated_image, label, 
+                        #           (int(xmin), int(ymin) - 7), 
+                        #           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        return annotated_image, detections
+    
+    def get_class_names(self):
+        """
+        Get the names of the classes that the model can detect
+        
+        Returns:
+            list: List of class names
+        """
+        return self.model.names 
