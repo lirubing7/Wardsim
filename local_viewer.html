@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PLY Viewer with 20s MP4 Recording</title>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif;
+            background: #222;
+        }
+        canvas { 
+            display: block; 
+            width: 100%;
+            height: 80vh;
+        }
+        #upload-container {
+            padding: 20px;
+            background: #333;
+            border-bottom: 1px solid #444;
+            color: white;
+        }
+        #file-input {
+            display: none;
+        }
+        .upload-btn {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .upload-btn:hover {
+            background: #45a049;
+        }
+        #loading {
+            display: none;
+            margin-top: 10px;
+            color: #aaa;
+        }
+        #controls {
+            padding: 10px;
+            background: #333;
+            color: white;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .control-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #555;
+            color: white;
+        }
+        .control-btn:hover {
+            background: #666;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        #recording-status {
+            color: #f44336;
+            margin-left: 10px;
+            display: none;
+        }
+        #recording-timer {
+            color: #4CAF50;
+            margin-left: 10px;
+            display: none;
+        }
+        #format-warning {
+            color: #ff9800;
+            margin-left: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="upload-container">
+        <label for="file-input" class="upload-btn">Select PLY/DRC Files</label>
+        <input id="file-input" type="file" accept=".ply,.drc" multiple>
+        <div id="loading">Loading...</div>
+    </div>
+    <div id="controls">
+        <button id="rotate-toggle" class="control-btn">Pause Rotation</button>
+        <button id="reset-view" class="control-btn">Reset View</button>
+        <span id="recording-status">Recording...</span>
+        <span id="recording-timer">0s / 20s</span>
+        <span id="format-warning">Using WebM (MP4 not supported)</span>
+    </div>
+    <div id="instructions">
+        Controls: WASD to move, Mouse drag to look around | Auto-records 20s video after upload
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/PLYLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/DRACOLoader.js"></script>
+    <script>
+        // initiate scene
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222222);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ 
+            antialias: true,
+            alpha: true 
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        
+        // Video recording configuration - Core modification: Set the recording duration to 20 seconds
+        let mediaRecorder;
+        let recordingBlob;
+        let isRecording = false;
+        const RECORD_DURATION = 20; // recording time
+        let recordTimer = null;
+        let isMp4Supported = false;
+        
+        // Check the browser's support for MP4
+        function checkMp4Support() {
+            if (!window.MediaRecorder) return false;
+            const mimeType = 'video/mp4; codecs=avc1.42E01E';
+            return MediaRecorder.isTypeSupported(mimeType);
+        }
+        
+        // Mobile control variable
+        const moveSpeed = 0.01;
+        const maxDistance = 0.3;
+        const keys = { w: false, a: false, s: false, d: false };
+        let isMouseDown = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let rotationSpeed = 0.0005;
+        let isRotating = true;
+        let sceneCenter = new THREE.Vector3();
+        let animationId = null;
+        let isAtLimit = false;
+
+        // keyboard control
+        document.addEventListener('keydown', (event) => {
+            switch (event.key.toLowerCase()) {
+                case 'w': keys.w = true; break;
+                case 'a': keys.a = true; break;
+                case 's': keys.s = true; break;
+                case 'd': keys.d = true; break;
+            }
+            if (!animationId && (keys.w || keys.a || keys.s || keys.d)) {
+                animate();
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            switch (event.key.toLowerCase()) {
+                case 'w': keys.w = false; break;
+                case 'a': keys.a = false; break;
+                case 's': keys.s = false; break;
+                case 'd': keys.d = false; break;
+            }
+        });
+
+        // mouse control
+        renderer.domElement.addEventListener('mousedown', (event) => {
+            isMouseDown = true;
+            previousMousePosition = { x: event.clientX, y: event.clientY };
+            event.preventDefault();
+        });
+
+        document.addEventListener('mouseup', () => { isMouseDown = false; });
+
+        document.addEventListener('mousemove', (event) => {
+            if (isMouseDown) {
+                const deltaMove = {
+                    x: event.clientX - previousMousePosition.x,
+                    y: event.clientY - previousMousePosition.y
+                };
+                
+                const quaternion = new THREE.Quaternion();
+                const yQuaternion = new THREE.Quaternion();
+                yQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -deltaMove.x * 0.002);
+                quaternion.multiply(yQuaternion);
+                
+                const xQuaternion = new THREE.Quaternion();
+                xQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -deltaMove.y * 0.002);
+                quaternion.multiply(xQuaternion);
+                
+                camera.quaternion.multiply(quaternion);
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+            }
+        });
+
+        renderer.domElement.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+        });
+
+        // Model loader
+        const loader = new THREE.PLYLoader();
+        const dracoLoader = new THREE.DRACOLoader();
+        dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/libs/draco/');
+        let loadedCount = 0;
+        let totalFiles = 0;
+
+        // File upload processing
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const files = e.target.files;
+            if (files.length === 0) return;
+            
+            document.getElementById('loading').style.display = 'block';
+            totalFiles = files.length;
+            loadedCount = 0;
+            
+            // clear existing model
+            scene.children.slice().forEach(child => {
+                if (child instanceof THREE.Mesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                    scene.remove(child);
+                }
+            });
+            
+            // Model loading
+            Array.from(files).forEach((file) => {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        if (file.name.endsWith('.ply')) {
+                            const geometry = loader.parse(event.target.result);
+                            const material = new THREE.MeshBasicMaterial({
+                                side: THREE.DoubleSide,
+                                vertexColors: true,
+                            });
+                            const mesh = new THREE.Mesh(geometry, material);
+                            mesh.rotateX(-Math.PI / 2);
+                            mesh.rotateZ(-Math.PI / 2);
+                            scene.add(mesh);
+                        } else if (file.name.endsWith('.drc')) {
+                            dracoLoader.decodeDracoFile(event.target.result, function(geometry) {
+                                if (!geometry.attributes.normal) geometry.computeVertexNormals();
+                                const material = new THREE.MeshBasicMaterial({
+                                    side: THREE.DoubleSide,
+                                    vertexColors: true,
+                                });
+                                const mesh = new THREE.Mesh(geometry, material);
+                                mesh.rotateX(-Math.PI / 2);
+                                mesh.rotateZ(-Math.PI / 2);
+                                scene.add(mesh);
+                            });
+                        }
+                        
+                        loadedCount++;
+                        if(loadedCount === totalFiles) {
+                            document.getElementById('loading').style.display = 'none';
+                            positionCamera();
+                            isRotating = true;
+                            document.getElementById('rotate-toggle').textContent = 'Pause Rotation';
+                            animate();
+                            startAutoRecording(); 
+                        }
+                    } catch (error) {
+                        console.error('Error loading file:', error);
+                        loadedCount++;
+                        if(loadedCount === totalFiles && scene.children.some(c => c instanceof THREE.Mesh)) {
+                            document.getElementById('loading').style.display = 'none';
+                            positionCamera();
+                            animate();
+                            startAutoRecording();
+                        }
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        });
+        
+        // Automatic recording function
+        function startAutoRecording() {
+            if (isRecording) return;
+            
+            isMp4Supported = checkMp4Support();
+            let mimeType, fileName;
+            
+            if (isMp4Supported) {
+                mimeType = 'video/mp4; codecs=avc1.42E01E';
+                fileName = 'ply_auto_recording.mp4';
+                document.getElementById('format-warning').style.display = 'none';
+            } else {
+                mimeType = 'video/webm; codecs=vp9';
+                fileName = 'ply_auto_recording.webm';
+                document.getElementById('format-warning').style.display = 'inline';
+            }
+            
+            const stream = renderer.domElement.captureStream(30);
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
+            
+            const chunks = [];
+            mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                recordingBlob = new Blob(chunks, { type: mimeType });
+                const url = URL.createObjectURL(recordingBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                isRecording = false;
+                document.getElementById('recording-status').style.display = 'none';
+                document.getElementById('recording-timer').style.display = 'none';
+                clearInterval(recordTimer);
+            };
+            
+            mediaRecorder.start();
+            isRecording = true;
+            document.getElementById('recording-status').style.display = 'inline';
+            document.getElementById('recording-timer').style.display = 'inline';
+            
+            // 20-second countdown 
+            let elapsed = 0;
+            recordTimer = setInterval(() => {
+                elapsed++;
+                document.getElementById('recording-timer').textContent = 
+                    `${elapsed}s / ${RECORD_DURATION}s`;
+                
+                if (elapsed >= RECORD_DURATION) {
+                    mediaRecorder.stop();
+                }
+            }, 1000);
+        }
+        
+        // reset camera
+        function positionCamera() {
+            scene.rotation.y = 0;
+            camera.position.set(0, 0, 0);
+            camera.lookAt(0, 0, -10);
+        }
+        
+        // Control button
+        document.getElementById('rotate-toggle').addEventListener('click', function() {
+            isRotating = !isRotating;
+            this.textContent = isRotating ? 'Pause Rotation' : 'Start Rotation';
+        });
+        
+        document.getElementById('reset-view').addEventListener('click', function() {
+            positionCamera();
+            isAtLimit = false;
+            isRotating = true;
+            if (!animationId) animate();
+        });
+        
+        // Move limit
+        function limitMovement(position) {
+            const distance = Math.sqrt(position.x * position.x + position.z * position.z);
+            if (distance > maxDistance) {
+                const ratio = maxDistance / distance;
+                position.x *= ratio;
+                position.z *= ratio;
+                return true;
+            }
+            return false;
+        }
+        
+        // Animate cycle
+        function animate() {
+            if (keys.w || keys.a || keys.s || keys.d) {
+                const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                
+                forward.y = 0;
+                right.y = 0;
+                forward.normalize();
+                right.normalize();
+                
+                const movement = new THREE.Vector3();
+                if (keys.w) movement.add(forward);
+                if (keys.s) movement.sub(forward);
+                if (keys.a) movement.sub(right);
+                if (keys.d) movement.add(right);
+                
+                if (movement.length() > 0) {
+                    movement.normalize().multiplyScalar(moveSpeed);
+                }
+                
+                const currentY = camera.position.y;
+                camera.position.add(movement);
+                camera.position.y = currentY;
+                isAtLimit = limitMovement(camera.position);
+            }
+            
+            if (isRotating && scene.children.some(c => c instanceof THREE.Mesh)) {
+                scene.rotation.y += rotationSpeed;
+            }
+            
+            const targetPosition = new THREE.Vector3();
+            targetPosition.copy(camera.position);
+            targetPosition.add(new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion));
+            camera.lookAt(targetPosition);
+            
+            renderer.render(scene, camera);
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // Initialize the animation
+        animate();
+
+        // Window resize
+        window.addEventListener('resize', function() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
