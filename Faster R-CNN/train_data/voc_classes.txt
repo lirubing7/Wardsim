@@ -1,0 +1,6 @@
+monitor
+bed
+IV_stand
+vent
+pump
+person
