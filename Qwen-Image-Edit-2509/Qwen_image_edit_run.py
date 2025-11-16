@@ -8,7 +8,7 @@ from diffusers import QwenImageEditPlusPipeline
 
 input_image_path = "../test/test.jpg"
 output_image_path = "../test/output_qwen_image_test.jpg"
-local_model_path = "./Qwen-Image/Qwen-Image/model_path/Qwen-Image-Edit-2509"
+local_model_path = "./model_path/Qwen-Image-Edit-2509"
 
 
 # Check input file
