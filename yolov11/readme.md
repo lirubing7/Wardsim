@@ -1,8 +1,8 @@
-# YOLOv11 Custom Object Detection Pipeline
+# YOLOv11 Custom Object Detection Guide
 
 This folder provides a complete workflow for training and running a **custom YOLOv11** object detection model, including dataset splitting, training, and inference.
 
-## Step 0 — Environment Setup
+## Step 1 — Environment Setup
 
 Before running any scripts, configure the environment by executing:
 
@@ -12,7 +12,7 @@ bash setup.sh
 
 This script will install the required packages and set up the environment for YOLOv11 training and inference.
 
-## Step 1 — Split Dataset (train/val/test)
+## Step 2 — Split Dataset (train/val/test)
 
 Make sure your rawdata/images and rawdata/labels follow YOLO format.
 
@@ -31,7 +31,7 @@ dataset/
 └── test/
 ```
 
-## Step 2 — Train the YOLOv11 Custom Model
+## Step 3 — Train the YOLOv11 Custom Model
 
 Run:
 
@@ -47,7 +47,7 @@ weights/best.pt
 
 You may also directly use our pre-trained best.pt.
 
-## Step 3 — Run Inference
+## Step 4 — Run Inference
 
 Set the custom model path inside detection_model/, for example:
 

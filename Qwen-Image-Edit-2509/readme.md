@@ -1,22 +1,54 @@
+# Qwen-Image-Edit-2509 Local Execution Guide
 
-Download Qwen-Image-Edit-2509 to local path
-  
-  mkdir model_path
+This document describes how to set up and run **Qwen-Image-Edit-2509** on a local machine.
 
-  
-  
-  modelscope download --model Qwen/Qwen-Image-Edit-2509 --local_dir ./Qwen-Image-Edit-2509
+## 🖥️ Hardware & Software Environment
 
-=========================================================================
-Qwen_image_edit_run.py was executed in the RTX-5090 (PyTorch	2.7.0, Python	3.12, CUDA Toolkit	12.8)
+The model is executed on the following environment:
 
-1. Memory Capacity: 32 GB (GDDR6X/GDDR7, depending on vendor specs)
-vCPU Count: 25 vCPUs
-2. System Memory (RAM)
-Capacity: 120 GB (DDR5, ECC-enabled for stability)
-3. Storage Configuration
-Storage Type	Capacity	Tier	Purpose
-System Disk	30 GB	-	Hosts Ubuntu 22.04 OS, core software (PyTorch, CUDA), and system files
-Data Disk	150 GB	
+- **GPU**: NVIDIA RTX 5090  
+- **PyTorch**: 2.7.0  
+- **Python**: 3.12  
+- **CUDA Toolkit**: 12.8  
 
+Ensure that your environment meets or exceeds these specifications for stable performance.
 
+---
+
+## Step 1 — Download Qwen-Image-Edit-2509 Locally
+
+First, navigate to your desired model directory:
+
+```bash
+cd model_path
+```
+
+Use ModelScope to download the model:
+
+```bash
+modelscope download --model Qwen/Qwen-Image-Edit-2509 --local_dir ./Qwen-Image-Edit-2509
+```
+
+## Step 2 — Set Up Environment
+
+Run the setup script to install all required dependencies:
+
+```bash
+bash Qwen-Image-setup.sh
+```
+
+## Step 3 — Configure Prompt and Run the Editor
+
+Modify the prompt inside Qwen_image_edit_run.py, for example:
+
+```python
+prompt = "Replace the hospital bed with a modern ICU bed, keep lighting consistent."
+```
+
+After updating your edit instructions, run:
+
+```bash
+python Qwen_image_edit_run.py
+```
+
+The script will load Qwen-Image-Edit-2509 and generate the edited image based on your prompt.
