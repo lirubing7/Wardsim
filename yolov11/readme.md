@@ -1,27 +1,54 @@
-This system achieves precise detection of six object categories—monitor (patient monitor), staff (medical personnel), IV_stand (IV stand), pump (infusion pump), vent (ventilator), and bed (hospital bed)—using a custom-trained YOLOv11 model. By integrating Depth Anything v2 for depth estimation, the system ultimately generates 3D bounding boxes and bird's-eye view (BEV) visualizations.
+# YOLOv11 Custom Object Detection Pipeline
 
-./train
+This folder provides a complete workflow for training and running a **custom YOLOv11** object detection model, including dataset splitting, training, and inference.
 
-  Construct a medical-scene-specific dataset, including annotated data for six target categories such as monitor and staff; Train a custom object detection model based on YOLOv11 to optimize the detection accuracy of medical targets.
-  Prepare dateset and Customize model based on yollov11 is stored in weights/best.pt
+## Step 1 — Split Dataset (train/val/test)
 
-==================================================
-  Refer to custom.yaml to prepare dataset
+Make sure your rawdata/images and rawdata/labels follow YOLO format.
 
-    数据集路径
-    train:
-    
-    ./dataset/train/images # 训练集图片路径
-    ./dataset/train/negative_images val: ./dataset/val/images # 验证集图片路径 test: ./dataset/test/images # 新增测试集图片路径
-    数据集路径
-    labels: train: - ./dataset/train/labels # 训练集图片路径 - ./dataset/train/negative_labels val: ./dataset/val/labels # 验证集图片路径 test: ./dataset/test/labels # 新增测试集图片路径
-    
-    类别数量
-    nc: 6
-    
-    类别名称
-    names: [ 'monitor', 'bed','IV_stand','vent','pump','person' ]
-    task: detect
+Run the script:
 
-===============================================
+```bash
+python split_data.py
+```
 
+This will randomly split your dataset into train / val / test according to your predefined ratios, and store them under:
+
+```txt
+dataset/
+├── train/
+├── val/
+└── test/
+```
+
+## Step 2 — Train the YOLOv11 Custom Model
+
+Run:
+
+```bash
+python train_yolo.py
+```
+
+After training, the best-performing weights will be saved automatically to:
+
+```txt
+weights/best.pt
+```
+
+You may also directly use our pre-trained best.pt.
+
+## Step 3 — Run Inference
+
+Set the custom model path inside detection_model/, for example:
+
+```txt
+model_path = "weights/best.pt"
+```
+
+Then run:
+
+```bash
+python yolo_run.py
+```
+
+It will load your YOLOv11 model and perform object detection.

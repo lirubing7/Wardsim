@@ -39,19 +39,18 @@ class ObjectDetector:
         print(f"Using device: {self.device} for object detection")
      
         model_path = "./train/weights/best.pt"
-        # 2. 模型加载：优先使用自定义模型路径，否则加载默认官方模型
+        
         if model_path is not None and os.path.exists(model_path):
-            # 加载自定义训练的YOLO模型（best.pt）
+            # loading model（best.pt）
             try:
                 self.model = YOLO(model_path)
                 print(f"Loaded custom YOLO model from: {model_path}")
             except Exception as e:
                 print(f"Error loading custom model: {e}")
-                raise  # 自定义模型加载失败时终止，避免使用错误模型
-        else:
-            # 原逻辑：加载官方预训练模型（备用）
+                raise  
+        else:           
             model_map = {'nano':'yolo11n', 'small':'yolo11s', 'medium':'yolo11m', 'large':'yolo11l', 'extra':'yolo11x'}
-            model_name = model_map.get(model_size.lower(), model_map['small'])  # 若保留model_size参数需调整
+            model_name = model_map.get(model_size.lower(), model_map['small'])  
             self.model = YOLO(model_name)
             print(f"Loaded official YOLOv11 {model_name} model (no custom path provided)")
 
@@ -121,8 +120,7 @@ class ObjectDetector:
                 if predictions.boxes is None:
                     continue
                 
-                # 获取图像尺寸（用于边界判断）
-                img_h, img_w = annotated_image.shape[:2]  # 图像高度、宽度
+                img_h, img_w = annotated_image.shape[:2] 
 
                 # Process boxes
                 for bbox in predictions.boxes:
@@ -141,33 +139,26 @@ class ObjectDetector:
                     # Process each detection
                     for score, class_id, bbox_coord, id_ in zip(scores, classes, bbox_coords, ids):
                         
-                        # 优化4：过滤低置信度目标（仅绘制score≥0.3的框）
                         if float(score) < 0.333 :
                             continue
 
                         xmin, ymin, xmax, ymax = bbox_coord.cpu().numpy()
                         class_name = predictions.names[int(class_id)]
 
-                        # -------------------------- 新增：monitor顶点出界判断 --------------------------
-                        # 仅对monitor执行判断
                         if class_name.lower() == "monitor":
-                            # 定义2D框的4个顶点（浮点坐标，未转int避免精度损失）
+        
                             vertices = [
-                                (xmin, ymin),  # 左上
-                                (xmax, ymin),  # 右上
-                                (xmin, ymax),  # 左下
-                                (xmax, ymax)   # 右下
+                                (xmin, ymin), 
+                                (xmax, ymin),  
+                                (xmin, ymax),  
+                                (xmax, ymax)   
                             ]   
-                            # 判断是否有顶点超出屏幕（x<0或x>img_w-1；y<0或y>img_h-1）
                             is_out_of_bounds = any(
                                 (x < 0 or x > (img_w - 1)) or (y < 0 or y > (img_h - 1))
                                 for x, y in vertices
                             )   
-                            # 若出界：跳过绘制、不添加到detections、不跟踪
                             if is_out_of_bounds:
-                                #print(f"[跳过] monitor (ID:{int(id_) if id_ is not None else '?'}) 顶点出界，不绘制不跟踪")
-                                continue  # 直接进入下一个检测框处理
-                        # -------------------------- 出界判断结束 --------------------------
+                                continue  
 
                         # Add to detections list
                         detections.append([
@@ -177,25 +168,6 @@ class ObjectDetector:
                             int(id_) if id_ is not None else None  # object id
                         ])
                         
-                        # Draw bounding box
-                        #cv2.rectangle(annotated_image, 
-                        #             (int(xmin), int(ymin)), 
-                        #             (int(xmax), int(ymax)), 
-                        #             (0, 0, 225), 2)
-                        
-                        # Add label
-                        #label = f"{predictions.names[int(class_id)]} {float(score):.2f}"
-                        #text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        #dim, baseline = text_size[0], text_size[1]
-                        #cv2.rectangle(annotated_image, 
-                        #             (int(xmin), int(ymin)), 
-                        #             (int(xmin) + dim[0], int(ymin) - dim[1] - baseline), 
-                        #             (30, 30, 30), cv2.FILLED)
-                        #cv2.putText(annotated_image, label, 
-                        #           (int(xmin), int(ymin) - 7), 
-                        #           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                        
-                        # Update tracking trajectories
                         if id_ is not None:
                             centroid_x = (xmin + xmax) / 2
                             centroid_y = (ymin + ymax) / 2
@@ -241,25 +213,7 @@ class ObjectDetector:
                             int(class_id),             # class id
                             None                       # object id (None for no tracking)
                         ])
-                        
-                        # Draw bounding box
-                        #cv2.rectangle(annotated_image, 
-                        #             (int(xmin), int(ymin)), 
-                        #             (int(xmax), int(ymax)), 
-                        #             (0, 0, 225), 2)
-                        
-                        # Add label
-                        #label = f"{predictions.names[int(class_id)]} {float(score):.2f}"
-                        #text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        #dim, baseline = text_size[0], text_size[1]
-                        #cv2.rectangle(annotated_image, 
-                        #             (int(xmin), int(ymin)), 
-                        #             (int(xmin) + dim[0], int(ymin) - dim[1] - baseline), 
-                        #             (30, 30, 30), cv2.FILLED)
-                        #cv2.putText(annotated_image, label, 
-                        #           (int(xmin), int(ymin) - 7), 
-                        #           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
+                                
         return annotated_image, detections
     
     def get_class_names(self):
