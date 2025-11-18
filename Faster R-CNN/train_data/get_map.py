@@ -10,67 +10,76 @@ from frcnn import FRCNN
 
 if __name__ == "__main__":
     '''
-    Recall和Precision不像AP是一个面积的概念，因此在门限值（Confidence）不同时，网络的Recall和Precision值是不同的。
-    默认情况下，本代码计算的Recall和Precision代表的是当门限值（Confidence）为0.5时，所对应的Recall和Precision值。
+    Recall and Precision are not area-based metrics like AP, so their values change with different
+    confidence thresholds. By default, this script computes the Recall and Precision when the
+    confidence threshold (Confidence) is 0.5.
 
-    受到mAP计算原理的限制，网络在计算mAP时需要获得近乎所有的预测框，这样才可以计算不同门限条件下的Recall和Precision值
-    因此，本代码获得的map_out/detection-results/里面的txt的框的数量一般会比直接predict多一些，目的是列出所有可能的预测框，
+    Due to the principle of mAP computation, the network needs to keep almost all prediction boxes
+    in order to compute Recall and Precision under different thresholds. Therefore, the number of
+    predicted boxes written into map_out/detection-results/ is usually larger than that from a
+    direct predict script, in order to list all possible prediction boxes.
     '''
     #------------------------------------------------------------------------------------------------------------------#
-    #   map_mode用于指定该文件运行时计算的内容
-    #   map_mode为0代表整个map计算流程，包括获得预测结果、获得真实框、计算VOC_map。
-    #   map_mode为1代表仅仅获得预测结果。
-    #   map_mode为2代表仅仅获得真实框。
-    #   map_mode为3代表仅仅计算VOC_map。
-    #   map_mode为4代表利用COCO工具箱计算当前数据集的0.50:0.95map。需要获得预测结果、获得真实框后并安装pycocotools才行
+    #   map_mode specifies what this script will do:
+    #   map_mode = 0: run the full mAP pipeline (get predictions, get ground truth, compute VOC mAP).
+    #   map_mode = 1: only get predictions.
+    #   map_mode = 2: only get ground truth.
+    #   map_mode = 3: only compute VOC mAP.
+    #   map_mode = 4: use COCO API to compute mAP@0.50:0.95. Requires predictions, ground truth,
+    #                 and pycocotools installed.
     #-------------------------------------------------------------------------------------------------------------------#
     map_mode        = 0
     #--------------------------------------------------------------------------------------#
-    #   此处的classes_path用于指定需要测量VOC_map的类别
-    #   一般情况下与训练和预测所用的classes_path一致即可
+    #   classes_path: classes to be evaluated for VOC mAP.
+    #   Usually the same as the classes_path used in training and inference.
     #--------------------------------------------------------------------------------------#
     classes_path    = 'model_data/voc_classes.txt'
     #--------------------------------------------------------------------------------------#
-    #   MINOVERLAP用于指定想要获得的mAP0.x，mAP0.x的意义是什么请同学们百度一下。
-    #   比如计算mAP0.75，可以设定MINOVERLAP = 0.75。
+    #   MINOVERLAP sets which mAP@0.x you want to compute.
+    #   For example, to compute mAP@0.75, set MINOVERLAP = 0.75.
     #
-    #   当某一预测框与真实框重合度大于MINOVERLAP时，该预测框被认为是正样本，否则为负样本。
-    #   因此MINOVERLAP的值越大，预测框要预测的越准确才能被认为是正样本，此时算出来的mAP值越低，
+    #   When IoU between a predicted box and a ground-truth box is higher than MINOVERLAP,
+    #   that prediction is considered a true positive, otherwise a false positive.
+    #   The higher MINOVERLAP is, the stricter the IoU requirement and the lower the resulting mAP.
     #--------------------------------------------------------------------------------------#
     MINOVERLAP      = 0.5
     #--------------------------------------------------------------------------------------#
-    #   受到mAP计算原理的限制，网络在计算mAP时需要获得近乎所有的预测框，这样才可以计算mAP
-    #   因此，confidence的值应当设置的尽量小进而获得全部可能的预测框。
-    #   
-    #   该值一般不调整。因为计算mAP需要获得近乎所有的预测框，此处的confidence不能随便更改。
-    #   想要获得不同门限值下的Recall和Precision值，请修改下方的score_threhold。
+    #   Due to the mAP calculation principle, the network needs to keep nearly all prediction boxes
+    #   when computing mAP. Therefore, the confidence should be set as low as possible to keep
+    #   all potential predictions.
+    #
+    #   This value is generally not changed. For mAP computation, confidence should stay low.
+    #   To analyze Recall and Precision under different thresholds, modify score_threhold instead.
     #--------------------------------------------------------------------------------------#
     confidence      = 0.02
     #--------------------------------------------------------------------------------------#
-    #   预测时使用到的非极大抑制值的大小，越大表示非极大抑制越不严格。
-    #   
-    #   该值一般不调整。
+    #   Non-maximum suppression IoU used during prediction.
+    #   Larger values mean NMS is less strict.
+    #
+    #   This value is generally not changed.
     #--------------------------------------------------------------------------------------#
     nms_iou         = 0.5
     #---------------------------------------------------------------------------------------------------------------#
-    #   Recall和Precision不像AP是一个面积的概念，因此在门限值不同时，网络的Recall和Precision值是不同的。
-    #   
-    #   默认情况下，本代码计算的Recall和Precision代表的是当门限值为0.5（此处定义为score_threhold）时所对应的Recall和Precision值。
-    #   因为计算mAP需要获得近乎所有的预测框，上面定义的confidence不能随便更改。
-    #   这里专门定义一个score_threhold用于代表门限值，进而在计算mAP时找到门限值对应的Recall和Precision值。
+    #   Recall and Precision are not area-based metrics like AP, so they depend on the threshold.
+    #
+    #   By default, this script reports Recall and Precision at threshold 0.5
+    #   (defined below as score_threhold).
+    #   Since mAP requires nearly all predictions, the confidence above cannot be changed freely.
+    #   We use a separate score_threhold to indicate the threshold used when looking up
+    #   Recall and Precision corresponding to that point.
     #---------------------------------------------------------------------------------------------------------------#
     score_threhold  = 0.5
     #-------------------------------------------------------#
-    #   map_vis用于指定是否开启VOC_map计算的可视化
+    #   map_vis: whether to enable visualization for VOC mAP
     #-------------------------------------------------------#
     map_vis         = False
     #-------------------------------------------------------#
-    #   指向VOC数据集所在的文件夹
-    #   默认指向根目录下的VOC数据集
+    #   Path to the VOC dataset folder.
+    #   By default points to the VOC dataset under the project root.
     #-------------------------------------------------------#
     VOCdevkit_path  = 'VOCdevkit'
     #-------------------------------------------------------#
-    #   结果输出的文件夹，默认为map_out
+    #   Output folder, default is map_out
     #-------------------------------------------------------#
     map_out_path    = 'map_out'
 
