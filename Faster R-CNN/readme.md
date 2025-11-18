@@ -30,7 +30,7 @@ python train.py
 Trained weights will be saved to:
 
 ```txt
-models/checkpoints/frcnn_custom.pth
+./train_data/model_data/frcnn_custom.pth
 ```
 
 
