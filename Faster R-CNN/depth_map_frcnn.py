@@ -7,17 +7,17 @@ from PIL import Image
 
 class DepthEstimator:
     """
-    基于 Depth Anything v2 的深度估计器，支持多种模型尺寸和设备适配
+    Depth estimator based on Depth Anything v2, supporting multiple model sizes and device adaptation
     """
     def __init__(self, model_size='small', device=None):
         """
-        初始化深度估计器
+        Initialize depth estimator
         
         Args:
-            model_size (str): 模型尺寸 ('small', 'base', 'large')，越大精度越高但速度越慢
-            device (str): 运行设备 ('cuda', 'cpu', 'mps')，自动推断默认设备
+            model_size (str): model size ('small', 'base', 'large'); larger = higher accuracy but slower
+            device (str): execution device ('cuda', 'cpu', 'mps'); automatically inferred if None
         """
-        # 自动推断设备（优先GPU，其次MPS，最后CPU）
+        # Automatically infer device (prefer GPU, then MPS, then CPU)
         if device is None:
             if torch.cuda.is_available():
                 device = 'cuda'
@@ -28,16 +28,16 @@ class DepthEstimator:
         
         self.device = device
         
-        # MPS设备兼容处理（部分操作可能不支持，强制使用CPU管道）
+        # MPS compatibility handling (pipeline may not support some operations → fallback to CPU)
         if self.device == 'mps':
-            print("检测到MPS设备，由于兼容性问题，深度估计管道将使用CPU")
+            print("MPS detected; due to compatibility issues, depth estimation pipeline will use CPU")
             self.pipe_device = 'cpu'
         else:
             self.pipe_device = self.device
         
-        #print(f"深度估计设备配置：主设备 {self.device}，管道设备 {self.pipe_device}")
+        #print(f"Depth estimator device setup: main {self.device}, pipeline {self.pipe_device}")
         
-        # 模型尺寸与Hugging Face模型名映射
+        # Mapping of model sizes to Hugging Face model names
         model_map = {
             'small': 'depth-anything/Depth-Anything-V2-Small-hf',
             'base': 'depth-anything/Depth-Anything-V2-Base-hf',
@@ -45,17 +45,17 @@ class DepthEstimator:
         }
         model_name = model_map.get(model_size.lower(), model_map['small'])
         
-        # 初始化深度估计管道
+        # Initialize depth estimation pipeline
         try:
             self.pipe = pipeline(
                 task="depth-estimation",
                 model=model_name,
                 device=self.pipe_device,
-                trust_remote_code=True  # 加载自定义模型代码
+                trust_remote_code=True  # load custom model code
             )
-            print(f"成功加载 Depth Anything v2 {model_size} 模型")
+            print(f"Successfully loaded Depth Anything v2 {model_size} model")
         except Exception as e:
-            print(f"模型加载失败：{e}，尝试降级为CPU加载...")
+            print(f"Model loading failed: {e}, falling back to CPU...")
             self.pipe_device = 'cpu'
             self.pipe = pipeline(
                 task="depth-estimation",
@@ -63,124 +63,121 @@ class DepthEstimator:
                 device=self.pipe_device,
                 trust_remote_code=True
             )
-            print(f"已在CPU上加载 Depth Anything v2 {model_size} 模型")
+            print(f"Depth Anything v2 {model_size} model loaded on CPU")
         
-        # 缓存原始深度范围（用于后续反归一化）
+        # Cache original depth range (for later denormalization)
         self.raw_depth_min = None
         self.raw_depth_max = None
 
     def estimate_depth(self, image, return_raw=False):
         """
-        从输入图像估计深度图
+        Estimate depth map from input image
         
         Args:
-            image (numpy.ndarray): 输入图像（BGR格式，OpenCV默认格式）
-            return_raw (bool): 是否返回原始深度值（未归一化）
+            image (numpy.ndarray): input image (BGR format, OpenCV default)
+            return_raw (bool): whether to return unnormalized depth
         
         Returns:
-            numpy.ndarray: 深度图（归一化到0-1，或原始值）
+            numpy.ndarray: depth map (normalized to 0–1, or raw values)
         """
-        #print(f"开始深度估计 - 输入图像尺寸: {image.shape}")  # 新增
+        #print(f"Starting depth estimation - input shape: {image.shape}")
         
-        # 转换BGR→RGB（模型输入要求RGB格式）
+        # Convert BGR → RGB (model expects RGB)
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         pil_image = Image.fromarray(image_rgb)
         
-        # 推理获取深度图
-        with torch.no_grad():  # 禁用梯度计算，加速推理
+        # Run inference
+        with torch.no_grad():  # disable gradients for faster inference
             depth_result = self.pipe(pil_image)
         
-        # 提取深度图并转换为numpy数组
+        # Extract depth map and convert to numpy
         depth_map = depth_result["depth"]
         if isinstance(depth_map, Image.Image):
             depth_map = np.array(depth_map, dtype=np.float32)
         elif isinstance(depth_map, torch.Tensor):
             depth_map = depth_map.cpu().numpy().astype(np.float32)
 
-        #print(f"深度图生成成功 - 尺寸: {depth_map.shape}, 范围: [{depth_map.min():.4f}, {depth_map.max():.4f}]")  # 新增
+        #print(f"Depth map generated - shape: {depth_map.shape}, range: [{depth_map.min():.4f}, {depth_map.max():.4f}]")
     
-        # 保存原始深度范围（用于后续计算实际距离）
+        # Save raw depth range
         self.raw_depth_min = depth_map.min()
         self.raw_depth_max = depth_map.max()
         
         if return_raw:
-            return depth_map  # 原始深度值（无单位，相对值）
+            return depth_map  # raw depth values
+        
         else:
-            # 归一化到0-1范围（便于可视化和后续处理）
+            # Normalize to 0–1 range for visualization & processing
             if self.raw_depth_max > self.raw_depth_min:
                 return (depth_map - self.raw_depth_min) / (self.raw_depth_max - self.raw_depth_min)
-                print(f"深度图归一化完成 - 范围: [{norm_depth.min():.4f}, {norm_depth.max():.4f}]")  # 新增
+                print(f"Depth map normalized - range: [{norm_depth.min():.4f}, {norm_depth.max():.4f}]")
             return np.zeros_like(depth_map)
 
     def colorize_depth(self, depth_map, cmap=cv2.COLORMAP_INFERNO):
         """
-        将深度图彩色化，便于可视化
+        Apply color map to depth map for visualization
         
         Args:
-            depth_map (numpy.ndarray): 归一化的深度图（0-1）
-            cmap (int): OpenCV颜色映射（如COLORMAP_INFERNO、COLORMAP_JET）
+            depth_map (numpy.ndarray): normalized depth (0–1)
+            cmap (int): OpenCV color map (e.g., INFERNO, JET)
         
         Returns:
-            numpy.ndarray: 彩色深度图（BGR格式，可直接用OpenCV显示）
+            numpy.ndarray: colored depth map (BGR format)
         """
-        # 转换为8位整数（0-255）
         depth_uint8 = (depth_map * 255).astype(np.uint8)
-        # 应用颜色映射并转换为BGR（OpenCV显示格式）
         colored = cv2.applyColorMap(depth_uint8, cmap)
         return colored
 
     def get_depth_at_point(self, depth_map, x, y, normalized=True):
         """
-        获取指定像素点的深度值
+        Get depth value at a specific pixel
         
         Args:
-            depth_map (numpy.ndarray): 深度图（归一化或原始）
-            x (int): 像素x坐标（列）
-            y (int): 像素y坐标（行）
-            normalized (bool): depth_map是否为归一化（0-1）
+            depth_map (numpy.ndarray): depth map
+            x (int): x coordinate
+            y (int): y coordinate
+            normalized (bool): whether depth_map is normalized (0–1)
         
         Returns:
-            float: 深度值（归一化值或原始相对值）
+            float: depth value (normalized or raw)
         """
-        # 检查坐标有效性
         h, w = depth_map.shape[:2]
         if not (0 <= x < w and 0 <= y < h):
             return 0.0
         
         val = depth_map[y, x]
-        # 若输入是归一化图，可转换为原始值
+        # Convert back to raw depth if needed
         if normalized and self.raw_depth_min is not None:
             return val * (self.raw_depth_max - self.raw_depth_min) + self.raw_depth_min
         return val
 
     def get_depth_in_bbox(self, depth_map, bbox, method='median', normalized=True):
         """
-        计算边界框区域内的深度值（用于目标的3D定位）
+        Compute depth inside a bounding box (for 3D positioning)
         
         Args:
-            depth_map (numpy.ndarray): 深度图（归一化或原始）
-            bbox (list/tuple): 边界框 [x1, y1, x2, y2]（左上角和右下角坐标）
-            method (str): 聚合方法 ('median' 中位数, 'mean' 均值, 'max' 最大值)
-            normalized (bool): depth_map是否为归一化（0-1）
+            depth_map (numpy.ndarray): depth map
+            bbox (list/tuple): [x1, y1, x2, y2]
+            method (str): aggregation method ('median', 'mean', 'max')
+            normalized (bool): whether depth_map is normalized
         
         Returns:
-            float: 区域内的深度值（抗噪性：median > mean > max）
+            float: aggregated depth value
         """
         x1, y1, x2, y2 = [int(coord) for coord in bbox]
         h, w = depth_map.shape[:2]
         
-        # 裁剪边界框到图像范围内
+        # Clip bbox to image boundaries
         x1 = max(0, x1)
         y1 = max(0, y1)
         x2 = min(w - 1, x2)
         y2 = min(h - 1, y2)
         
-        # 提取区域深度
         region = depth_map[y1:y2, x1:x2]
         if region.size == 0:
             return 0.0
         
-        # 按指定方法聚合
+        # Aggregate
         if method == 'median':
             val = np.median(region)
         elif method == 'mean':
@@ -188,23 +185,24 @@ class DepthEstimator:
         elif method == 'max':
             val = np.max(region)
         else:
-            raise ValueError(f"不支持的聚合方法：{method}")
+            raise ValueError(f"Unsupported aggregation method: {method}")
         
-        # 转换为原始深度值（若输入是归一化图）
+        # Convert back to raw depth if needed
         if normalized and self.raw_depth_min is not None:
             return val * (self.raw_depth_max - self.raw_depth_min) + self.raw_depth_min
         return val
 
     def denormalize_depth(self, normalized_depth):
         """
-        将归一化深度图转换为原始深度值（需先调用过estimate_depth）
+        Convert normalized depth back to raw depth values.
+        Must call estimate_depth() first.
         
         Args:
-            normalized_depth (numpy.ndarray): 归一化深度图（0-1）
+            normalized_depth (numpy.ndarray): normalized depth (0–1)
         
         Returns:
-            numpy.ndarray: 原始深度值
+            numpy.ndarray: raw depth values
         """
         if self.raw_depth_min is None or self.raw_depth_max is None:
-            raise RuntimeError("请先调用estimate_depth获取原始深度范围")
+            raise RuntimeError("Please call estimate_depth() first to obtain raw depth range")
         return normalized_depth * (self.raw_depth_max - self.raw_depth_min) + self.raw_depth_min

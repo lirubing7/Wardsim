@@ -19,6 +19,23 @@ Option B — Use our trained custom model (skip training)
 
 ## Step 3 — Prepare Dataset
 
+The script voc_annotation.py is used to generate the dataset split text files and training lists:
+
+Running the script:
+
+```bash
+python voc_annotation.py
+```
+
+This will automatically create:
+
+Training list files which are read by ```train.py```
+
+```txt
+2007_train.txt
+2007_val.txt
+```
+
 ## Step 4 — Train the Faster R-CNN Model
 
 run:
