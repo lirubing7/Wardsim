@@ -2,54 +2,54 @@ import os
 
 def check_image_label_matching(img_dir, label_dir):
     """
-    检查图片和标签文件是否存在且文件名匹配（忽略扩展名）
-    :param img_dir: 图片文件夹路径
-    :param label_dir: 标签文件夹路径
-    :return: 检查结果（True/False）和不匹配的文件信息
+    Check whether images and label files exist and whether their filenames match (ignoring extensions)
+    :param img_dir: path to the image folder
+    :param label_dir: path to the label folder
+    :return: check result (True/False) and mismatch information
     """
-    # 检查文件夹是否存在
+    # Check whether folders exist
     if not os.path.isdir(img_dir):
-        return False, f"图片文件夹不存在: {img_dir}"
+        return False, f"Image folder does not exist: {img_dir}"
     if not os.path.isdir(label_dir):
-        return False, f"标签文件夹不存在: {label_dir}"
+        return False, f"Label folder does not exist: {label_dir}"
     
-    # 获取所有图片文件（过滤常见图片格式）
+    # Get all image files (filtering common image formats)
     img_extensions = ('.bmp', '.dib', '.png', '.jpg', '.jpeg', '.pbm', '.pgm', '.ppm', '.tif', '.tiff')
     img_files = [f for f in os.listdir(img_dir) if f.lower().endswith(img_extensions)]
     if not img_files:
-        return False, f"图片文件夹中未找到任何图片文件: {img_dir}"
+        return False, f"No image files found in folder: {img_dir}"
     
-    # 获取所有标签文件（假设为YOLO格式的txt文件）
+    # Get all label files (assuming YOLO-format txt files)
     label_extension = '.txt'
     label_files = [f for f in os.listdir(label_dir) if f.lower().endswith(label_extension)]
     if not label_files:
-        return False, f"标签文件夹中未找到任何标签文件: {label_dir}"
+        return False, f"No label files found in folder: {label_dir}"
     
-    # 提取文件名（不含扩展名）用于匹配
+    # Extract basenames (without extensions) for matching
     img_basenames = {os.path.splitext(f)[0] for f in img_files}
     label_basenames = {os.path.splitext(f)[0] for f in label_files}
     
-    # 检查不匹配的文件
-    missing_labels = img_basenames - label_basenames  # 有图片但无标签
-    missing_images = label_basenames - img_basenames  # 有标签但无图片
+    # Check mismatched files
+    missing_labels = img_basenames - label_basenames  # Images without labels
+    missing_images = label_basenames - img_basenames  # Labels without images
     
-    # 生成检查报告
+    # Generate report
     report = []
     if missing_labels:
-        report.append(f"以下图片缺少对应标签: {', '.join(missing_labels)}")
+        report.append(f"Images missing corresponding labels: {', '.join(missing_labels)}")
     if missing_images:
-        report.append(f"以下标签缺少对应图片: {', '.join(missing_images)}")
+        report.append(f"Labels missing corresponding images: {', '.join(missing_images)}")
     
     if report:
         return False, "\n".join(report)
     else:
-        return True, f"所有文件匹配成功！图片数量: {len(img_files)}, 标签数量: {len(label_files)}"
+        return True, f"All files match! Total images: {len(img_files)}, total labels: {len(label_files)}"
 
-# 你的文件夹路径
-yolo_file = r'/home/autodl-tmp/rawdata/labels'   # 标签文件夹
-img_file = r'/home/autodl-tmp/rawdata/images'    # 图片文件夹
+# Your folder paths
+yolo_file = r'/home/autodl-tmp/rawdata/labels'   # Label folder
+img_file = r'/home/autodl-tmp/rawdata/images'    # Image folder
 
-# 执行检查
+# Perform check
 match, message = check_image_label_matching(img_file, yolo_file)
-print("检查结果：")
+print("Check result:")
 print(message)

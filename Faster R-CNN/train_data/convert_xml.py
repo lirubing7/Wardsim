@@ -4,18 +4,18 @@ import glob
 from PIL import Image
 import shutil
 
-# 路径配置
-yolo_file = r'/root/autodl-tmp/rawdata/labels'  # YOLO格式标签文件夹
-turn_xml_file = r'/root/autodl-tmp/frcnn/faster-rcnn-pytorch-master/VOCdevkit/VOC2007/Annotations'  # 输出XML文件夹
-img_file = r'/root/autodl-tmp/rawdata/images'  # 图片文件夹
+# Path configuration
+yolo_file = r'/root/autodl-tmp/rawdata/labels'  # YOLO-format label folder
+turn_xml_file = r'/root/autodl-tmp/frcnn/faster-rcnn-pytorch-master/VOCdevkit/VOC2007/Annotations'  # Output XML folder
+img_file = r'/root/autodl-tmp/rawdata/images'  # Image folder
 
-# 类别列表
+# Class list
 labels = ['monitor', 'bed', 'IV_stand', 'vent', 'pump', 'person']
 
-# 创建输出文件夹（若不存在）
+# Create output folder if it does not exist
 os.makedirs(turn_xml_file, exist_ok=True)
 
-# 获取所有图片路径
+# Get all image paths
 img_Lists = glob.glob(os.path.join(img_file, '*.jpg'))
 img_basenames = [os.path.basename(item) for item in img_Lists]
 img_names = [os.path.splitext(name)[0] for name in img_basenames]
@@ -25,36 +25,36 @@ count = 0
 
 for img in img_names:
     count += 1
-    # 打印进度（每100张或最后一张）
+    # Print progress (every 100 images or last image)
     if count % 100 == 0 or count == total_num:
         progress = (count / total_num) * 100
-        print(f"转换进度：{progress:.1f}% ({count}/{total_num})")
+        print(f"Conversion progress: {progress:.1f}% ({count}/{total_num})")
 
-    # 尝试打开图片获取尺寸
+    # Try to open image to get size
     try:
         img_path = os.path.join(img_file, f"{img}.jpg")
         im = Image.open(img_path)
         width, height = im.size
     except FileNotFoundError:
-        print(f"警告：图片 {img}.jpg 不存在，跳过")
+        print(f"Warning: image {img}.jpg does not exist, skipping.")
         continue
     except Exception as e:
-        print(f"处理图片 {img} 出错：{e}，跳过")
+        print(f"Error processing image {img}: {e}, skipping.")
         continue
 
-    # 读取YOLO标签文件
+    # Read YOLO label file
     txt_path = os.path.join(yolo_file, f"{img}.txt")
     try:
         with open(txt_path, 'r') as f:
             gt = f.read().splitlines()
     except FileNotFoundError:
-        print(f"警告：标签文件 {img}.txt 不存在，生成空XML")
+        print(f"Warning: label file {img}.txt does not exist, generating empty XML.")
         gt = []
     except Exception as e:
-        print(f"读取标签 {img}.txt 出错：{e}，跳过")
+        print(f"Error reading label {img}.txt: {e}, skipping.")
         continue
 
-    # 生成XML文件
+    # Generate XML file
     xml_path = os.path.join(turn_xml_file, f"{img}.xml")
     with open(xml_path, 'w') as xml_file:
         xml_file.write('<annotation>\n')
@@ -66,19 +66,20 @@ for img in img_names:
         xml_file.write('        <depth>3</depth>\n')
         xml_file.write('    </size>\n')
 
-        # 写入目标边界框
+        # Write object bounding boxes
         for label_line in gt:
             spt = label_line.strip().split(' ')
             if len(spt) != 5:
-                print(f"标签格式错误：{img}.txt 中该行无效：{label_line}")
+                print(f"Label format error: invalid line in {img}.txt → {label_line}")
                 continue
 
             try:
                 class_id = int(spt[0])
                 if class_id < 0 or class_id >= len(labels):
-                    print(f"无效类别ID：{class_id} 在 {img}.txt 中")
+                    print(f"Invalid class ID: {class_id} in {img}.txt")
                     continue
-                # 转换YOLO坐标到VOC坐标
+
+                # Convert YOLO coords to VOC coords
                 center_x = float(spt[1]) * width
                 center_y = float(spt[2]) * height
                 bbox_width = float(spt[3]) * width
@@ -89,13 +90,13 @@ for img in img_names:
                 xmax = int(round(center_x + bbox_width / 2))
                 ymax = int(round(center_y + bbox_height / 2))
 
-                # 确保坐标在有效范围内
+                # Ensure coordinates stay within valid range
                 xmin = max(0, xmin)
                 ymin = max(0, ymin)
                 xmax = min(width, xmax)
                 ymax = min(height, ymax)
 
-                # 写入XML
+                # Write object to XML
                 xml_file.write('    <object>\n')
                 xml_file.write(f'        <name>{labels[class_id]}</name>\n')
                 xml_file.write('        <pose>Unspecified</pose>\n')
@@ -109,10 +110,9 @@ for img in img_names:
                 xml_file.write('        </bndbox>\n')
                 xml_file.write('    </object>\n')
             except Exception as e:
-                print(f"处理标签行出错：{label_line}，错误：{e}")
+                print(f"Error processing label line {label_line}: {e}")
                 continue
 
         xml_file.write('</annotation>')
 
-print("转换完成！")
-
+print("Conversion complete!")
