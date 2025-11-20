@@ -65,8 +65,8 @@ if __name__ == "__main__":
     #   These parameters only work in mode='video'.
     #   Note: to properly save video, press Ctrl+C or let it run to the end.
     #----------------------------------------------------------------------------------------------------------#
-    video_path      = "test/input_video.mp4"
-    video_save_path = "test/output_input_video.mp4"
+    video_path      = "../test/input_video.mp4"
+    video_save_path = "../test/output_input_video.mp4"
     video_fps       = 25.0
     #----------------------------------------------------------------------------------------------------------#
     #   test_interval       number of runs when measuring FPS; larger -> more accurate
@@ -74,16 +74,16 @@ if __name__ == "__main__":
     #
     #   Only valid when mode='fps'
     #----------------------------------------------------------------------------------------------------------#
-    test_interval   = 100
-    fps_image_path  = "img/street.jpg"
+    # test_interval   = 100
+    # fps_image_path  = "img/street.jpg"
     #-------------------------------------------------------------------------#
     #   dir_origin_path     directory containing input images
     #   dir_save_path       directory to save output images
     #
     #   Only valid when mode='dir_predict'
     #-------------------------------------------------------------------------#
-    dir_origin_path = "img/"
-    dir_save_path   = "img_out/"
+    # dir_origin_path = "img/"
+    # dir_save_path   = "img_out/"
     
     if mode == "video":
         capture = cv2.VideoCapture(video_path)

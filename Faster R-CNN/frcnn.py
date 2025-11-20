@@ -36,8 +36,8 @@ class FRCNN(object):
         #   are consistent with the training configuration.
         #--------------------------------------------------------------------------#
         #"model_path"    : 'model_data/voc_weights_resnet.pth',
-        "model_path"    : 'model_data/best_epoch_weights_01.pth',
-        "classes_path"  : 'model_data/voc_classes.txt',
+        "model_path"    : 'train_data/model_data/frcnn_custom.pth',
+        "classes_path"  : 'train_data/model_data/voc_classes.txt',
         #---------------------------------------------------------------------#
         #   Backbone network for feature extraction: resnet50 or vgg
         #---------------------------------------------------------------------#

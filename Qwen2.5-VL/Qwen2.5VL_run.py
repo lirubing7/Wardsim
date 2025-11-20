@@ -1,5 +1,4 @@
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
-# from modelscope import AutoModelForCausalLM, AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
 from PIL import Image, ImageDraw  # Used for drawing bounding boxes
 import os
@@ -12,7 +11,7 @@ total_start_time = time.time()
 
 # 1. Specify model save path (replace with your target path)
 model_path = "./Qwen/model_path"  # e.g., "./local_models/Qwen2.5-VL-3B-Instruct"
-output_img = "./test/output_qwen_detected_image5.jpg"  # Output annotated image path
+output_img = "../test/output_qwen_detected_image5.jpg"  # Output annotated image path
 
 # 1. Load model components
 # 2. Load multimodal model using AutoModel
@@ -29,7 +28,7 @@ processor = AutoProcessor.from_pretrained(
     trust_remote_code=True
 )
 
-img_path = "./test/image_5.jpg"  # Fix extension (.jpg instead of .jgp)
+img_path = "../test/image_5.jpg"  
 question = "Detect monitor and IV_stand in the image and return their locations in the form of coordinates. The format of output should be like {“bbox”: [x1, y1, x2, y2], “label”: the name of this object in Englis}"
 
 """
