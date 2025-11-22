@@ -6,11 +6,11 @@ This project adds a fully automatic pipeline:
 
 After this update, FlashWorld can automatically run YOLO on every generated video—no manual steps required.
 
-1. Replace the original ```cli.py``` with the updated version
+### 1. Replace the original ```cli.py``` with the updated version
 
 The new ```cli.py``` will automatically call YOLO after FlashWorld finishes generating a scene video.
 
-2. Add the YOLO detection files into the same project directory
+### 2. Add the YOLO detection files into the same project directory
 
 Required files:
 
