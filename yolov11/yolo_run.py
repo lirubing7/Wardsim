@@ -17,37 +17,23 @@ from depth_model import DepthEstimator
 from bbox3d_utils import BBox3DEstimator, BirdEyeView
 from load_camera_params import load_camera_params, apply_camera_params_to_estimator
 
-def main():
-    """Main function."""
-    # Configuration variables (modify these as needed)
-    # ===============================================
-    
-    # Input/Output
-    source = "ICU_doctor.mp4"  # Path to input video file or webcam index (0 for default camera)
-    output_path = "output_ICU_doctor_43.mp4"  # Path to output video file
-    
-    # Model settings
-    yolo_model_size = "small"  # YOLOv11 model size: "nano", "small", "medium", "large", "extra"
-    depth_model_size = "small"  # Depth Anything v2 model size: "small", "base", "large"
-    
-    # Device settings
-    device = 'cpu'  # Force CPU for stability
-    
-    # Detection settings
-    conf_threshold = 0.3  # Confidence threshold for object detection
-    iou_threshold = 0.8  # IoU threshold for NMS
-    classes = None  # Filter by class, e.g., [0, 1, 2] for specific classes, None for all classes
-    
-    # Feature toggles
-    enable_tracking = True  # Enable object tracking
-    enable_bev = True  # Enable Bird's Eye View visualization
-    enable_pseudo_3d = True  # Enable pseudo-3D visualization
-    enable_depth_thumbnail = True  # 新增：False=禁用深度图缩略图，True=启用
-
-    # Camera parameters - simplified approach
-    camera_params_file = None  # Path to camera parameters file (None to use default parameters)
-    # ===============================================
-    
+def run_yolo_on_video(
+    source,
+    output_path,
+    yolo_model_size="small",
+    depth_model_size="small",
+    device = 'cuda' if torch.cuda.is_available() else 'cpu',
+    conf_threshold=0.3,
+    iou_threshold=0.8,
+    classes=None,
+    enable_tracking=True,
+    enable_bev=None,
+    enable_pseudo_3d=None,
+    enable_depth_thumbnail=True,
+    camera_params_file=None,
+    max_frames=1000,
+):
+    """Run YOLO + DepthAnything + 3D/BEV pipeline on a single video file."""
     print(f"Using device: {device}")
     
     # Initialize models
@@ -85,20 +71,18 @@ def main():
         )
     
     # Initialize 3D bounding box estimator with default parameters
-    # Simplified approach - focus on 2D detection with depth information
     bbox3d_estimator = BBox3DEstimator()
     
     # Initialize Bird's Eye View if enabled
     if enable_bev:
-        # Use a scale that works well for the 1-5 meter range
-        bev = BirdEyeView(scale=60, size=(300, 300))  # Increased scale to spread objects out
+        bev = BirdEyeView(scale=60, size=(300, 300))
     
     # Open video source
     try:
         if isinstance(source, str) and source.isdigit():
-            source = int(source)  # Convert string number to integer for webcam
+            source = int(source)
     except ValueError:
-        pass  # Keep as string (for video file)
+        pass
     
     print(f"Opening video source: {source}")
     cap = cv2.VideoCapture(source)
@@ -111,7 +95,7 @@ def main():
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
-    if fps == 0:  # Sometimes happens with webcams
+    if fps == 0:
         fps = 30
     
     # Initialize video writer
@@ -125,16 +109,8 @@ def main():
     
     print("Starting processing...")
     
-    # Main loop
     while True:
-        # Check for key press at the beginning of each loop
-        # key = cv2.waitKey(1)
-        # if key == ord('q') or key == 27 or (key & 0xFF) == ord('q') or (key & 0xFF) == 27:
-        #    print("Exiting program...")
-        #    break
-            
         try:
-            # Read frame
             ret, frame = cap.read()
             if not ret:
                 break
@@ -160,7 +136,6 @@ def main():
                 depth_colored = depth_estimator.colorize_depth(depth_map)
             except Exception as e:
                 print(f"Error during depth estimation: {e}")
-                # Create a dummy depth map
                 depth_map = np.zeros((height, width), dtype=np.float32)
                 depth_colored = np.zeros((height, width, 3), dtype=np.uint8)
                 cv2.putText(depth_colored, "Depth Error", (10, 60), 
@@ -174,36 +149,28 @@ def main():
                 try:
                     bbox, score, class_id, obj_id = detection
                     
-                    # Get class name
                     class_name = detector.get_class_names()[class_id]
                     
-                    # Get depth in the region of the bounding box
-                    # Try different methods for depth estimation
+                    # Depth sampling
                     if class_name.lower() in ['person', 'cat', 'dog']:
-                        # For people and animals, use the center point depth
                         center_x = int((bbox[0] + bbox[2]) / 2)
                         center_y = int((bbox[1] + bbox[3]) / 2)
                         depth_value = depth_estimator.get_depth_at_point(depth_map, center_x, center_y)
                         depth_method = 'center'
                     else:
-                        # For other objects, use the median depth in the region
                         depth_value = depth_estimator.get_depth_in_region(depth_map, bbox, method='median')
                         depth_method = 'median'
-                   
-                   # Step 3.2: 关键！调用estimate_3d_box，传入obj_id启用卡尔曼滤波
-                    # 输出的box_3d_estimated包含：3D位置、尺寸、姿态、滤波后结果
+                    
                     use_kalman = True
-
                     if use_kalman:
                         box_3d = bbox3d_estimator.estimate_3d_box(
-                            bbox_2d=bbox,          # 2D框 [x1,y1,x2,y2]
-                            depth_value=depth_value,  # 目标深度（米）
-                            class_name=class_name,    # 目标类别（用于匹配预定义3D尺寸）
-                            object_id=obj_id,         # 目标跟踪ID（非None则启用卡尔曼滤波）
+                            bbox_2d=bbox,
+                            depth_value=depth_value,
+                            class_name=class_name,
+                            object_id=obj_id,
                             score=score
-                        )   
-                    else: 
-                        # Create a simplified 3D box representation
+                        )
+                    else:
                         box_3d = {
                             'bbox_2d': bbox,
                             'depth_value': depth_value,
@@ -214,141 +181,123 @@ def main():
                         }
                     
                     boxes_3d.append(box_3d)
-                    
-                    # Keep track of active IDs for tracker cleanup
                     if obj_id is not None:
                         active_ids.append(obj_id)
                 except Exception as e:
                     print(f"Error processing detection: {e}")
                     continue
             
-            # Clean up trackers for objects that are no longer detected
             bbox3d_estimator.cleanup_trackers(active_ids)
             
-            # 新颜色判断逻辑（医院场景：病床=红色，显示器=蓝色）
             # Step 4: Visualization
-            # Draw boxes on the result frame
             for box_3d in boxes_3d:
                 try:
-                    # Determine color based on class
                     class_name = box_3d['class_name'].lower()
                     if 'vent' in class_name:
-                        color = (0, 0, 255)  # Red
+                        color = (0, 0, 255)
                     elif 'person' in class_name:
-                        color = (0, 255, 0)  # Green
+                        color = (0, 255, 0)
                     elif 'monitor' in class_name:
-                        color = (255, 0, 0)  # Blue
+                        color = (255, 0, 0)
                     elif 'bed' in class_name:
-                        color = (255, 165, 0)  # orange
-                    elif 'IV_stand' in class_name:
-                        color = (0, 255, 255)  # yellow 
+                        color = (255, 165, 0)
+                    elif 'iv_stand' in class_name or 'iv-stand' in class_name:
+                        color = (0, 255, 255)
                     elif 'pump' in class_name:
-                        color = (0, 0, 255)  # red
+                        color = (0, 0, 255)
                     else:
-                        color = (255, 255, 255)  # White
+                        color = (255, 255, 255)
                     
-                    # Draw box with depth information
                     result_frame = bbox3d_estimator.draw_box_3d(result_frame, box_3d, color=color)
                 except Exception as e:
                     print(f"Error drawing box: {e}")
                     continue
             
-            # Draw Bird's Eye View if enabled
+            # Bird's Eye View
             if enable_bev:
                 try:
-                    # Reset BEV and draw objects
                     bev.reset()
                     for box_3d in boxes_3d:
                         bev.draw_box(box_3d)
                     bev_image = bev.get_image()
                     
-                    # Resize BEV image to fit in the corner of the result frame
-                    bev_height = height // 4  # Reduced from height/3 to height/4 for better fit
+                    bev_height = height // 4
                     bev_width = bev_height
                     
-                    # Ensure dimensions are valid
                     if bev_height > 0 and bev_width > 0:
-                        # Resize BEV image
                         bev_resized = cv2.resize(bev_image, (bev_width, bev_height))
-                        
-                        # Create a region of interest in the result frame
-                        roi = result_frame[height - bev_height:height, 0:bev_width]
-                        
-                        # Simple overlay - just copy the BEV image to the ROI
                         result_frame[height - bev_height:height, 0:bev_width] = bev_resized
-                        
-                        # Add a border around the BEV visualization
                         cv2.rectangle(result_frame, 
                                      (0, height - bev_height), 
                                      (bev_width, height), 
                                      (255, 255, 255), 1)
-                        
-                        # Add a title to the BEV visualization
                         cv2.putText(result_frame, "Bird's Eye View", 
                                    (10, height - bev_height + 20), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 except Exception as e:
                     print(f"Error drawing BEV: {e}")
             
-            # Calculate and display FPS
+            # FPS
             frame_count += 1
-            if frame_count % 10 == 0:  # Update FPS every 10 frames
+            if frame_count % 10 == 0:
                 end_time = time.time()
                 elapsed_time = end_time - start_time
                 fps_value = frame_count / elapsed_time
                 fps_display = f"FPS: {fps_value:.1f}"
             
-            # Add FPS and device info to the result frame
-            # cv2.putText(result_frame, f"{fps_display} | Device: {device}", (10, 30), 
-            #           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            # Depth thumbnail
+            if enable_depth_thumbnail:
+                try:
+                    depth_height = height // 4
+                    depth_width = depth_height * width // height
+                    depth_resized = cv2.resize(depth_colored, (depth_width, depth_height))
+                    result_frame[0:depth_height, 0:depth_width] = depth_resized
+                except Exception as e:
+                    print(f"Error adding depth map to result: {e}")
             
-            # Add depth map to the corner of the result frame
-            if enable_depth_thumbnail:  # 新增：开关控制
-               try:
-                   depth_height = height // 4
-                   depth_width = depth_height * width // height
-                   depth_resized = cv2.resize(depth_colored, (depth_width, depth_height))
-                   result_frame[0:depth_height, 0:depth_width] = depth_resized
-               except Exception as e:
-                   print(f"Error adding depth map to result: {e}")
-
-            # Write frame to output video
             out.write(result_frame)
             
-            # Display frames
-            #cv2.imshow("3D Object Detection", result_frame)
-            #cv2.imshow("Depth Map", depth_colored)
-            #cv2.imshow("Object Detection", detection_frame)
-            
-            # 替换为：仅打印进度（可选）
             if frame_count % 50 == 0:
                 print(f"Processed {frame_count} frames, saved to {output_path}")
-
-            # Check for key press again at the end of the loop
-            #key = cv2.waitKey(1)
-            #if key == ord('q') or key == 27 or (key & 0xFF) == ord('q') or (key & 0xFF) == 27:
-            #    print("Exiting program...")
-            #    break
-            if frame_count >= 1000:  # 按需调整帧数
+            if max_frames is not None and frame_count >= max_frames:
                 print("Reached max frame count, exiting...")
                 break
 
         except Exception as e:
             print(f"Error processing frame: {e}")
-            # Also check for key press during exception handling
-            key = cv2.waitKey(1)
-            if key == ord('q') or key == 27 or (key & 0xFF) == ord('q') or (key & 0xFF) == 27:
-                print("Exiting program...")
-                break
             continue
     
-    # Clean up
     print("Cleaning up resources...")
     cap.release()
     out.release()
     cv2.destroyAllWindows()
-    
     print(f"Processing complete. Output saved to {output_path}")
+    return output_path
+
+
+def main():
+    """Keep old behaviour when running yolo_run.py directly."""
+    source = "ICU_doctor.mp4"
+    output_path = "output_ICU_doctor_43.mp4"
+    
+    run_yolo_on_video(
+        source=source,
+        output_path=output_path,
+        yolo_model_size="small",
+        depth_model_size="small",
+        device = 'cuda' if torch.cuda.is_available() else 'cpu',
+        conf_threshold=0.3,
+        iou_threshold=0.8,
+        classes=None,
+        enable_tracking=True,
+        enable_bev=None,
+        enable_pseudo_3d=None,
+        enable_depth_thumbnail=True,
+        camera_params_file=None,
+        max_frames=1000,
+    )
+
+
 
 if __name__ == "__main__":
     try:
